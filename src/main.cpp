@@ -17,7 +17,7 @@ const int reed_pin = 34;
 //Capacidade da bascula em mm
 const float cap_basc = 0.25;
 //Em caso de emergencia enviar os dados imediatamente 
-const int emergencia_min = 20;
+const int emergencia_min = 2;
 const int emergencia_basc = 12;
 
 
@@ -31,7 +31,7 @@ float dados_arr[24];
 RTC_DS3231 rtc;
 time_t timer;
 struct tm * tempo_atual;
-int tempo_inicial;
+int tempo_inicial = 0;
 
 void pop_arr(float num, float * arr_p){
     for(int i=0; i<24; i++){
@@ -51,12 +51,7 @@ String arr_to_str(float * arr_p){
     return str;
 }
 
-void ver_emergencia(int atual, int inicial, int count){
-  int delta_tempo = atual - inicial;
-  if(delta_tempo < emergencia_min && count >= emergencia_basc){
 
-  }
-}
 
 
 void conf_tempo(){
@@ -100,24 +95,32 @@ void conf_radio(){
   delay(500);
 }
 
-void envia_dado(){
-  String str_msg = arr_to_str(dados_arr);
-  
-  uint8_t r_size = str_msg.length()+1;
+void envia_dado(String dados_p){  
+  uint8_t r_size = dados_p.length()+1;
   uint8_t message[r_size];
-  str_msg.toCharArray((char *)message, r_size);
+  dados_p.toCharArray((char *)message, r_size);
   int e;
   sx1272.CarrierSense();
   sx1272.setPacketType(PKT_TYPE_DATA);
   e = sx1272.sendPacketTimeout(DEFAULT_DEST_ADDR, message, r_size);
   Serial.print("Dado enviado, estado: ");
   Serial.println(e);
-  
-  
  // delay(1000*1000);
   delay(1000);
- 
- 
+}
+
+void ver_emergencia(int atual, int inicial, int count){
+
+  int delta_tempo = atual - inicial;
+  if(delta_tempo <= emergencia_min && count >= emergencia_basc){
+    Serial.println("EMERGENCIA");
+    Serial.print("Atual: ");
+    Serial.print(atual);
+    Serial.print("Inicial: ");
+    Serial.print(inicial);
+    tempo_inicial = atual;
+    envia_dado("66");
+  }
 }
 
 void setup() {
@@ -140,7 +143,7 @@ void loop() {
   tempo_atual = localtime(&timer);
   reed_monitor = digitalRead(reed_pin);
   if (reed_monitor != 0){
-    delay(200);
+    delay(400);
     reed_count++;
     reed_monitor = 0;
     if(reed_count == 1)
@@ -148,18 +151,18 @@ void loop() {
     dados_arr[tempo_atual->tm_hour] = dados_arr[tempo_atual->tm_hour] + 1;
     Serial.println("Girou");
     Serial.println(reed_count);  
-
+    ver_emergencia(tempo_atual->tm_min, tempo_inicial, reed_count);
 
   }
   if(tempo_atual->tm_hour == 0 && tempo_atual->tm_min == 0){
-    envia_dado();
+    envia_dado(arr_to_str(dados_arr));
     pop_arr(0, dados_arr);
     reed_count = 0;
   }
-  if(reed_count == 4){
-    envia_dado();
-    reed_count = 0;
-  }
+ // if(reed_count == 4){
+ //   envia_dado(arr_to_str(dados_arr));
+ //   reed_count = 0;
+  //}
   
  
 }
