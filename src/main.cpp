@@ -159,10 +159,10 @@ void loop() {
     pop_arr(0, dados_arr);
     reed_count = 0;
   }
- // if(reed_count == 4){
- //   envia_dado(arr_to_str(dados_arr));
- //   reed_count = 0;
-  //}
+  if(reed_count == 4){
+    envia_dado(arr_to_str(dados_arr));
+    reed_count = 0;
+  }
   
  
 }
