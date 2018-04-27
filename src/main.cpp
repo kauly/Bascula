@@ -4,34 +4,21 @@
 #include <time.h>
 #include <sys/time.h>
 
+#define ESTADO_INICIAL 0
+#define ESTADO_ATIVO 1
+#define ESTADO_ENVIA 2
 #define MAX_DBM 14
 #define LORAMODE  2
-#define node_addr 8
+#define NODE_ADDR 8
 #define DEFAULT_DEST_ADDR 1
-
+#define REED_PIN 34
+#define CAP_BASC 0.25
+#define EMERGENCIA 4
 const uint32_t DEFAULT_CHANNEL=CH_00_900;
-
-int loraMode=LORAMODE;
-
-const int reed_pin = 34;
-//Capacidade da bascula em mm
-const float cap_basc = 0.25;
-//Em caso de emergencia enviar os dados imediatamente 
-const int emergencia_min = 2;
-const int emergencia_basc = 12;
-
-
-
-int reed_monitor = 0;
-int reed_count = 0;
-float chuva_mm = 0;
-
+volatile char ControleMaquina;
 float dados_arr[24];
-
+int reed_count = 0;
 RTC_DS3231 rtc;
-time_t timer;
-struct tm * tempo_atual;
-int tempo_inicial = 0;
 
 void pop_arr(float num, float * arr_p){
     for(int i=0; i<24; i++){
@@ -51,9 +38,6 @@ String arr_to_str(float * arr_p){
     return str;
 }
 
-
-
-
 void conf_tempo(){
   int ctr = 0;
   DateTime now = rtc.now();
@@ -68,13 +52,11 @@ void conf_tempo(){
   delay(500);
 }
 
-
-
 void conf_radio(){
   int e;  
   sx1272.setCSPin(18);
   sx1272.ON();
-  e = sx1272.setMode(loraMode);
+  e = sx1272.setMode(LORAMODE);
   Serial.print("Radio iniciado MODO: ");
   Serial.println(e);
   // enable carrier sense
@@ -88,7 +70,7 @@ void conf_radio(){
   Serial.print("Max DBM: ");
   Serial.println(e);
   // Set the node address and print the result
-  e = sx1272.setNodeAddress(node_addr);
+  e = sx1272.setNodeAddress(NODE_ADDR);
   Serial.print("NODE ADDR: ");
   Serial.println(e);
   Serial.println("Fim da conf do radio");
@@ -105,10 +87,10 @@ void envia_dado(String dados_p){
   e = sx1272.sendPacketTimeout(DEFAULT_DEST_ADDR, message, r_size);
   Serial.print("Dado enviado, estado: ");
   Serial.println(e);
- // delay(1000*1000);
-  delay(1000);
+  delay(1000*1000);
+ // delay(1000);
 }
-
+/*
 void ver_emergencia(int atual, int inicial, int count){
 
   int delta_tempo = atual - inicial;
@@ -122,47 +104,66 @@ void ver_emergencia(int atual, int inicial, int count){
     envia_dado("66");
   }
 }
+*/
 
-void setup() {
+void IniciaMaquina(void){
+  int reed_monitor = 0;
+  time_t timer;
+  struct tm * tempo_atual;
+  time(&timer);
+  tempo_atual = localtime(&timer);
+  reed_monitor = digitalRead(REED_PIN);
+
+  switch(ControleMaquina){
+    case ESTADO_INICIAL:
+      if(reed_monitor){
+        delay(400); 
+        ControleMaquina = ESTADO_ATIVO;
+      }
+      else
+        ControleMaquina = ESTADO_INICIAL;
+    break;  
+    case ESTADO_ATIVO:
+      Serial.println("ESTADO ATIVO");
+      dados_arr[tempo_atual->tm_hour] = dados_arr[tempo_atual->tm_hour] + 1;
+      reed_count++;
+      reed_monitor = 0;
+      if((tempo_atual->tm_hour == 0 && tempo_atual->tm_min == 0) || reed_count == EMERGENCIA || reed_count == 2){
+        ControleMaquina = ESTADO_ENVIA;
+      } else {
+        ControleMaquina = ESTADO_INICIAL;
+      }
+    break;
+    case ESTADO_ENVIA:
+      Serial.println("ESTADO ENVIA");
+      if(reed_count == EMERGENCIA){
+        envia_dado("\\!66");
+        reed_count = 0;
+      }       
+      else {
+        envia_dado(arr_to_str(dados_arr));
+        pop_arr(0, dados_arr);        
+      }  
+      ControleMaquina = ESTADO_INICIAL;
+      
+    break;
+  }
+
+}
+
+void setup(){
   Serial.begin(9600);
   Serial.println("COM Serial iniciada");
-  pinMode(reed_pin, INPUT);
-  
+  pinMode(REED_PIN, INPUT);
   if (! rtc.begin()) {
     Serial.println("Couldn't find RTC");
     while (1);
   }
   conf_tempo();
   conf_radio();
-  pop_arr(14.89, dados_arr);
+  pop_arr(0, dados_arr);
 }
 
-void loop() {
-  
-  time(&timer);
-  tempo_atual = localtime(&timer);
-  reed_monitor = digitalRead(reed_pin);
-  if (reed_monitor != 0){
-    delay(400);
-    reed_count++;
-    reed_monitor = 0;
-    if(reed_count == 1)
-      tempo_inicial = tempo_atual->tm_min;
-    dados_arr[tempo_atual->tm_hour] = dados_arr[tempo_atual->tm_hour] + 1;
-    Serial.println("Girou");
-    Serial.println(reed_count);  
-    ver_emergencia(tempo_atual->tm_min, tempo_inicial, reed_count);
-
-  }
-  if(tempo_atual->tm_hour == 0 && tempo_atual->tm_min == 0){
-    envia_dado(arr_to_str(dados_arr));
-    pop_arr(0, dados_arr);
-    reed_count = 0;
-  }
-  if(reed_count == 4){
-    envia_dado(arr_to_str(dados_arr));
-    reed_count = 0;
-  }
-  
- 
+void loop(){
+  IniciaMaquina();
 }
